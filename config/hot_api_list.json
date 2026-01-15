@@ -1,0 +1,39 @@
+{
+  "description": "多平台热点API配置列表",
+  "platforms": [
+    {
+      "name": "weibo",
+      "display_name": "微博",
+      "endpoint": "https://api.weibo.com/hot/trending",
+      "enabled": true,
+      "comment": "微博热搜榜 - 实际使用时需要替换为真实API"
+    },
+    {
+      "name": "douyin",
+      "display_name": "抖音",
+      "endpoint": "https://api.douyin.com/hot/topics",
+      "enabled": true,
+      "comment": "抖音热点话题 - 实际使用时需要替换为真实API"
+    },
+    {
+      "name": "zhihu",
+      "display_name": "知乎",
+      "endpoint": "https://api.zhihu.com/hot/questions",
+      "enabled": true,
+      "comment": "知乎热榜 - 实际使用时需要替换为真实API"
+    },
+    {
+      "name": "bilibili",
+      "display_name": "B站",
+      "endpoint": "https://api.bilibili.com/hot/videos",
+      "enabled": false,
+      "comment": "B站热门视频 - 可选平台"
+    }
+  ],
+  "settings": {
+    "default_time_window_hours": 24,
+    "max_signals_per_platform": 10,
+    "retry_attempts": 3,
+    "timeout_seconds": 30
+  }
+}

@@ -9,6 +9,63 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
+def _create_azure_credential(exclude_interactive: bool = True):
+    """
+    Create Azure credential with Managed Identity priority.
+    
+    Priority order:
+    1. Managed Identity (if available in Azure environment)
+    2. DefaultAzureCredential chain (CLI, Environment, etc.)
+    
+    Args:
+        exclude_interactive: Whether to exclude interactive browser auth (default: True for production)
+    
+    Returns:
+        Azure credential object
+    """
+    try:
+        from azure.identity import (
+            DefaultAzureCredential,
+            ManagedIdentityCredential,
+            ChainedTokenCredential
+        )
+    except ImportError:
+        # Fallback if azure-identity not installed
+        from azure.identity import DefaultAzureCredential
+        return DefaultAzureCredential(exclude_interactive_browser_credential=exclude_interactive)
+    
+    # Check if USE_MANAGED_IDENTITY is explicitly set
+    use_managed_identity = os.getenv("USE_MANAGED_IDENTITY", "").lower() in ("true", "1", "yes")
+    
+    # Check if we're in an Azure environment (VM, Container, App Service, etc.)
+    in_azure_env = any([
+        os.getenv("IDENTITY_ENDPOINT"),  # Azure App Service/Functions
+        os.getenv("IMDS_ENDPOINT"),      # Azure VM/VMSS
+        os.getenv("MSI_ENDPOINT"),       # Legacy Azure services
+    ])
+    
+    if use_managed_identity or in_azure_env:
+        # Try Managed Identity first, then fall back to DefaultAzureCredential
+        try:
+            # User-assigned managed identity if CLIENT_ID is provided
+            client_id = os.getenv("AZURE_CLIENT_ID")
+            if client_id:
+                managed_identity = ManagedIdentityCredential(client_id=client_id)
+            else:
+                # System-assigned managed identity
+                managed_identity = ManagedIdentityCredential()
+            
+            # Chain: Managed Identity first, then DefaultAzureCredential
+            default_credential = DefaultAzureCredential(exclude_interactive_browser_credential=exclude_interactive)
+            return ChainedTokenCredential(managed_identity, default_credential)
+        except Exception:
+            # If Managed Identity setup fails, fall back to DefaultAzureCredential
+            pass
+    
+    # Default behavior: use DefaultAzureCredential
+    return DefaultAzureCredential(exclude_interactive_browser_credential=exclude_interactive)
+
+
 try:  # best-effort .env support (repo convention)
     from dotenv import load_dotenv  # type: ignore
 
@@ -188,16 +245,16 @@ def _create_or_reuse_agents(
     try:
         from azure.ai.projects import AIProjectClient  # type: ignore
         from azure.ai.projects.models import PromptAgentDefinition  # type: ignore
-        from azure.identity import DefaultAzureCredential  # type: ignore
     except Exception as exc:  # pragma: no cover
         raise RuntimeError(
             "Missing dependencies for Foundry agent creation. "
             "Install with: pip install -U agent-framework-azure-ai --pre"
         ) from exc
 
+    credential = _create_azure_credential(exclude_interactive=True)
     client = AIProjectClient(
         endpoint=project_endpoint,
-        credential=DefaultAzureCredential(exclude_interactive_browser_credential=False),
+        credential=credential,
     )
 
     id_map: dict[str, str] = {}

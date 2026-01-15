@@ -15,6 +15,120 @@ from typing import Any
 from maf_declarative_runtime import AgentInvoker, DeclarativeWorkflowRunner
 
 
+def _create_azure_credential(exclude_interactive: bool = True):
+    """
+    Create Azure credential with Managed Identity priority.
+    
+    Priority order:
+    1. Managed Identity (if available in Azure environment)
+    2. DefaultAzureCredential chain (CLI, Environment, etc.)
+    
+    Args:
+        exclude_interactive: Whether to exclude interactive browser auth (default: True for production)
+    
+    Returns:
+        Azure credential object
+    """
+    try:
+        from azure.identity import (
+            DefaultAzureCredential,
+            ManagedIdentityCredential,
+            ChainedTokenCredential
+        )
+    except ImportError:
+        # Fallback if azure-identity not installed
+        from azure.identity import DefaultAzureCredential
+        return DefaultAzureCredential(exclude_interactive_browser_credential=exclude_interactive)
+    
+    # Check if USE_MANAGED_IDENTITY is explicitly set
+    use_managed_identity = os.getenv("USE_MANAGED_IDENTITY", "").lower() in ("true", "1", "yes")
+    
+    # Check if we're in an Azure environment (VM, Container, App Service, etc.)
+    in_azure_env = any([
+        os.getenv("IDENTITY_ENDPOINT"),  # Azure App Service/Functions
+        os.getenv("IMDS_ENDPOINT"),      # Azure VM/VMSS
+        os.getenv("MSI_ENDPOINT"),       # Legacy Azure services
+    ])
+    
+    if use_managed_identity or in_azure_env:
+        # Try Managed Identity first, then fall back to DefaultAzureCredential
+        try:
+            # User-assigned managed identity if CLIENT_ID is provided
+            client_id = os.getenv("AZURE_CLIENT_ID")
+            if client_id:
+                managed_identity = ManagedIdentityCredential(client_id=client_id)
+            else:
+                # System-assigned managed identity
+                managed_identity = ManagedIdentityCredential()
+            
+            # Chain: Managed Identity first, then DefaultAzureCredential
+            default_credential = DefaultAzureCredential(exclude_interactive_browser_credential=exclude_interactive)
+            return ChainedTokenCredential(managed_identity, default_credential)
+        except Exception:
+            # If Managed Identity setup fails, fall back to DefaultAzureCredential
+            pass
+    
+    # Default behavior: use DefaultAzureCredential
+    return DefaultAzureCredential(exclude_interactive_browser_credential=exclude_interactive)
+
+
+def _create_async_azure_credential(exclude_interactive: bool = True):
+    """
+    Create async Azure credential with Managed Identity priority.
+    
+    Priority order:
+    1. Managed Identity (if available in Azure environment)
+    2. DefaultAzureCredential chain (CLI, Environment, etc.)
+    
+    Args:
+        exclude_interactive: Whether to exclude interactive browser auth (default: True for production)
+    
+    Returns:
+        Async Azure credential object
+    """
+    try:
+        from azure.identity.aio import (
+            DefaultAzureCredential,
+            ManagedIdentityCredential,
+            ChainedTokenCredential
+        )
+    except ImportError:
+        # Fallback if azure-identity not installed
+        from azure.identity.aio import DefaultAzureCredential
+        return DefaultAzureCredential(exclude_interactive_browser_credential=exclude_interactive)
+    
+    # Check if USE_MANAGED_IDENTITY is explicitly set
+    use_managed_identity = os.getenv("USE_MANAGED_IDENTITY", "").lower() in ("true", "1", "yes")
+    
+    # Check if we're in an Azure environment (VM, Container, App Service, etc.)
+    in_azure_env = any([
+        os.getenv("IDENTITY_ENDPOINT"),  # Azure App Service/Functions
+        os.getenv("IMDS_ENDPOINT"),      # Azure VM/VMSS
+        os.getenv("MSI_ENDPOINT"),       # Legacy Azure services
+    ])
+    
+    if use_managed_identity or in_azure_env:
+        # Try Managed Identity first, then fall back to DefaultAzureCredential
+        try:
+            # User-assigned managed identity if CLIENT_ID is provided
+            client_id = os.getenv("AZURE_CLIENT_ID")
+            if client_id:
+                managed_identity = ManagedIdentityCredential(client_id=client_id)
+            else:
+                # System-assigned managed identity
+                managed_identity = ManagedIdentityCredential()
+            
+            # Chain: Managed Identity first, then DefaultAzureCredential
+            default_credential = DefaultAzureCredential(exclude_interactive_browser_credential=exclude_interactive)
+            return ChainedTokenCredential(managed_identity, default_credential)
+        except Exception:
+            # If Managed Identity setup fails, fall back to DefaultAzureCredential
+            pass
+    
+    # Default behavior: use DefaultAzureCredential
+    return DefaultAzureCredential(exclude_interactive_browser_credential=exclude_interactive)
+
+
 try:  # Best-effort: allow loading config from a nearby .env without stack-frame hacks
     from dotenv import load_dotenv  # type: ignore
 
@@ -138,13 +252,13 @@ class AzureAIFoundryAgentInvoker(AgentInvoker):
 
         try:
             from azure.ai.projects import AIProjectClient  # type: ignore
-            from azure.identity import DefaultAzureCredential  # type: ignore
         except Exception:
             return self._agent_id
 
+        credential = _create_azure_credential(exclude_interactive=True)
         client = AIProjectClient(
             endpoint=self._project_endpoint,
-            credential=DefaultAzureCredential(exclude_interactive_browser_credential=False),
+            credential=credential,
         )
         versions = list(client.agents.list_versions(key, order="desc", limit=1))
         if not versions:
@@ -163,7 +277,6 @@ class AzureAIFoundryAgentInvoker(AgentInvoker):
         try:
             from agent_framework.azure import AzureAIAgentClient  # type: ignore
             from azure.core.exceptions import IncompleteReadError, ServiceRequestError, ServiceResponseTimeoutError  # type: ignore
-            from azure.identity.aio import DefaultAzureCredential  # type: ignore
         except Exception as exc:  # pragma: no cover
             raise RuntimeError(
                 "Missing dependencies for Azure AI Foundry invocation. "
@@ -171,7 +284,9 @@ class AzureAIFoundryAgentInvoker(AgentInvoker):
             ) from exc
 
         async def _call() -> str:
-            async with DefaultAzureCredential(exclude_interactive_browser_credential=False) as credential:
+            # Use async version of credential creation
+            credential = _create_async_azure_credential(exclude_interactive=True)
+            async with credential:
                 async with AzureAIAgentClient(
                     project_endpoint=self._project_endpoint,
                     model_deployment_name=(self._model_deployment_name or None),

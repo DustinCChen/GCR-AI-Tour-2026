@@ -35,7 +35,8 @@ pip install agent-framework
 - Use the latest async patterns for all agent operations
 - Implement proper error handling and logging
 - Use type hints and follow Python best practices
-- Use DefaultAzureCredential for authentication with Azure services where applicable
+- **Use Managed Identity for authentication in Azure environments (VM, Container, App Service)**
+- Fall back to DefaultAzureCredential for local development and other scenarios
 
 **AI Agents:**
 
