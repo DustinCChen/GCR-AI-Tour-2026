@@ -192,6 +192,11 @@ def main():
     args = parser.parse_args()
 
     load_dotenv(".env")
+    # 强制覆盖环境变量，兜底 GitHub Actions 云端环境
+    import os
+    os.environ["GITHUB_COPILOT_MODEL"] = "gpt-4o"
+
+    result = asyncio.run(run_podcast_workflow(input_topic=args.topic))
 
     result = asyncio.run(run_podcast_workflow(input_topic=args.topic))
 
